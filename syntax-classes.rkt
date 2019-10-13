@@ -9,8 +9,12 @@
 
 (begin-for-syntax
 
+(define (make-node type name left middle right)
+  (list type name left middle right))
+  
   (define-literal-set execution-patterns
     #:for-syntax #:datum-literals (assignment
+                                   reference
                                    name
                                    verb
                                    noun
@@ -41,35 +45,51 @@
 
   (define-syntax-class noun/j
     #:literal-sets (execution-patterns)
-    [pattern ((noun) n) #:attr symbol #'n])
+    [pattern ((noun) n)
+             #:attr symbol #'n
+             #:attr node #`#,(make-node #'(noun) #'n #'() #'() #'())])
   
   (define-syntax-class adverb/j
     #:literal-sets (execution-patterns)
-    [pattern ((adverb) n) #:attr symbol #'n])
+    [pattern ((adverb) n)
+             #:attr symbol #'n
+             #:attr node #`#,(make-node #'(adverb) #'n #'() #'() #'())])
 
   (define-syntax-class conjunction/j
     #:literal-sets (execution-patterns)
-    [pattern ((conjunction) n) #:attr symbol #'n])
+    [pattern ((conjunction) n)
+             #:attr symbol #'n
+             #:attr node #`#,(make-node #'(conjunction) #'n #'() #'() #'())])
   
   (define-syntax-class verb/j
     #:literal-sets (execution-patterns)
-    [pattern ((verb) n) #:attr symbol #'n])
+    [pattern ((verb) n)
+             #:attr symbol #'n
+             #:attr node #`#,(make-node #'(verb) #'n #'() #'() #'())])
 
   (define-syntax-class name/j
     #:literal-sets (execution-patterns)
-    [pattern (name n) #:attr symbol #'n])
+    [pattern (name n)
+             #:attr symbol #'n
+             #:attr node #`#,(make-node #'(name) #'n #'() #'() #'())])
 
   (define-syntax-class cavn/j
     #:literal-sets (execution-patterns)
-    [pattern n:conjunction/j #:attr symbol #'n.symbol #:attr pos #'(conjunction)]
-    [pattern n:adverb/j #:attr symbol #'n.symbol #:attr pos #'(adverb)]
-    [pattern n:verb/j #:attr symbol #'n.symbol #:attr pos #'(verb)]
-    [pattern n:noun/j #:attr symbol #'n.symbol #:attr pos #'(noun)])
+    [pattern n:conjunction/j
+             #:attr node #`#,(make-node #'(conjunction) #'n.symbol #'() #'() #'())]
+    [pattern n:adverb/j
+             #:attr node #`#,(make-node #'(adverb) #'n.symbol #'() #'() #'())]
+    [pattern n:verb/j
+             #:attr node #`#,(make-node #'(verb) #'n.symbol #'() #'() #'())]
+    [pattern n:noun/j
+             #:attr node #`#,(make-node #'(noun) #'n.symbol #'() #'() #'())])
 
   (define-syntax-class vn/j
     #:literal-sets (execution-patterns)
-    [pattern n:verb/j #:attr symbol #'n #:attr pos #'verb]
-    [pattern n:noun/j #:attr symbol #'n #:attr pos #'noun])
+    [pattern n:verb/j
+             #:attr node #`#,(make-node #'(verb) #'n.symbol #'() #'() #'())]
+    [pattern n:noun/j
+             #:attr node #`#,(make-node #'(noun) #'n.symbol #'() #'() #'())])
 
   (define-syntax-class lparen
     [pattern 'lparen]))
