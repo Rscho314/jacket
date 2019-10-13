@@ -26,7 +26,7 @@
    [name (list 'name (string->symbol lexeme))]
    ;nouns
    ; re-use racket numbers
-   [(:+ numeric) (list '(noun) (read (open-input-string lexeme)))] ; add arrays
+   [(:+ numeric) (list '(noun) (read (open-input-string lexeme)))]
    ;parentheses
    [#\( 'lparen]
    [#\) 'rparen]

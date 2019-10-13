@@ -1,8 +1,8 @@
 #lang racket
 
 (require (prefix-in tr: typed/racket)
-         (for-syntax syntax/parse
-                     math/array)
+         (for-syntax syntax/parse)
+         math/array
          "syntax-classes.rkt")
 
 (provide (rename-out [module-begin/j #%module-begin]))
@@ -47,13 +47,16 @@
                           #'()) (~? r) ...) env)] ; the env returns a list of parts of speech
 
     ;arrays -> noun nodes, from a sequence of scalar nodes (in the parser bc complete separation lex/parse)
-    [(_ (a:array/j r ...) env)
+    #;[(_ (a:array/j r ...) env)
      #'(make-line-ast (a.node (~? r) ...) env)]
     ;scalars -> noun nodes
-    [(_ (s:scalar/j r ...) env)
+    #;[(_ (s:scalar/j r ...) env)
      #'(make-line-ast (s.node (~? r) ...) env)]
 
-    ;self-evaluating forms and/or termination
+    ;self-evaluating forms
+    #;[(_ (cavn:cavn/j r ...+) env)
+     #`(make-line-ast (cavn.node r ...) env)]
+    ;termination
     [(_ (cavn:cavn/j) env)
      #`cavn.node]
     
@@ -61,17 +64,17 @@
     [(_ (n:noun/j v1:verb/j v2:verb/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
      #'(make-line-ast (#,(make-node
                           #'(noun)
-                          #'monad-app
+                          #'verb-app
                           #'()
-                          #`#,(make-node #'(monad) #'v1.symbol #'() #'() #'())
+                          #`#,(make-node #'(verb) #'v1.symbol #'() #'() #'())
                           #'n.node) v2 (~? next) (~? r) ...) env)]
     ;dyad 2
     [(_ (n1:noun/j v:verb/j n2:noun/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
      #`(make-line-ast (#,(make-node
                           #'(noun)
-                          #'dyad-app
+                          #'verb-app
                           #'n2.node
-                          #`#,(make-node #'(dyad) #'v.symbol #'() #'() #'())
+                          #`#,(make-node #'(verb) #'v.symbol #'() #'() #'())
                           #'n1.node) (~? next) (~? r) ...) env)]
     ;conjunction 4 (can yield any part of speech, for now only verb)
     [(_ (vn1:vn/j c:conjunction/j vn2:vn/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
@@ -89,13 +92,13 @@
                           #'vn.node
                           #'v2.node
                           #'v1.node) (~? next) (~? r) ...) env)]
-    ;monad 0 (we are sure that this yields a noun ; after dyad 2 bc of term ... for p&e 'anything'
-    [(_ ((~optional o) n:noun/j v:verb/j (~optional (~or* next:copula/j next:lparen)) r ...) env)
+    ;monad 0 brittle implementation using noun elimination for p&e 'anything' since a sequence of noun means an array
+    [(_ ((~optional o:cav/j) n:noun/j v:verb/j (~optional (~or* next:copula/j next:lparen)) r ...) env)
      #`(make-line-ast ((~? o) #,(make-node
                                  #'(noun)
-                                 #'monad-app
+                                 #'verb-app
                                  #'()
-                                 #`#,(make-node #'(monad) #'v.symbol #'() #'() #'())
+                                 #`#,(make-node #'(verb) #'v.symbol #'() #'() #'())
                                  #'n.node) (~? next) (~? r) ...) env)]
     ;adverb 3 (can yield any part of speech, for now only verb)
     [(_ ((~optional o) a:adverb/j (~or* vn:verb/j vn:noun/j) (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
@@ -136,20 +139,20 @@
 (define-syntax (compile-node stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
-    ;nouns (pattern matching on name to differentiate scalars/arrays)
-    [(_ ((noun) (n ...) () () ()) env)
-     #'(n ...)]
+    ;nouns
+    ;arrays (that's a dirty hacky way of differentiating arrays from scalars)
+    [(_ ((noun) (n ...+) () () ()) env)
+     #`(array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . n) ...)))])]
+    ;scalars
     [(_ ((noun) n () () ()) env)
      #'(#%datum . n)]
     ;verb application
-    [(_ ((monad) n () () ()) env)
-     #`#,(local-expand #'(primitive-env-ref n _) 'expression #f)]
-    [(_ ((noun) monad-app () v n) env)
+    [(_ ((verb) n () () ()) env)
+     #`#,(local-expand #'(primitive-env-ref n) 'expression #f)]
+    [(_ ((noun) verb-app () v n) env)
      #`(#,(local-expand #'(compile-node v env) 'expression #f)
         #,(local-expand #'(compile-node n env) 'expression #f))]
-    [(_ ((dyad) n () () ()) env)
-     #`#,(local-expand #'(primitive-env-ref n _ _) 'expression #f)]
-    [(_ ((noun) dyad-app n1 v n2) env)
+    [(_ ((noun) verb-app n1 v n2) env)
      #`(#,(local-expand #'(compile-node v env) 'expression #f)
         #,(local-expand #'(compile-node n1 env) 'expression #f)
         #,(local-expand #'(compile-node n2 env) 'expression #f))]))
@@ -160,9 +163,11 @@
     ;implementation for scalars/arrays
     ; -implement multimethods in macros
     ; -match at runtime
-    ; -pattern matching on node name in 'compile-node' (probably too complex in the long run...)
+    ; -pattern matching on node name in 'compile-node' (complex & dirty without doing type inference)
+    ; -implement full type inference (which we want to avoid)
     ;verbs
-    [(_ ^ _)
-     #'(λ (y) (exp y))]
-    [(_ ^ _ _)
-     #'(λ (x y) (expt x y))]))
+    [(_ ^)
+     #'(tr:case-lambda
+         [([y tr:: tr:Number]) (tr:exp y)]
+         ;[([y tr:: (Array tr:Number)]) (array-map tr:exp y)] ;does not work, can't dispatch on type!
+         [([x tr:: tr:Number] [y tr:: tr:Number]) (tr:expt x y)])]))

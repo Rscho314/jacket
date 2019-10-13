@@ -3,9 +3,7 @@
 ; Basically, all "type checking" depends on the definitions in this file
 
 (require (prefix-in tr: typed/racket)
-         (for-syntax syntax/parse
-                     math/array)
-         math/array)
+         (for-syntax syntax/parse))
 (provide (for-syntax (all-defined-out)))
 
 (begin-for-syntax
@@ -18,11 +16,8 @@
                                    reference
                                    name
                                    verb
+                                   verb-app
                                    noun
-                                   monad
-                                   monad-app
-                                   dyad
-                                   dyad-app
                                    adverb
                                    adverb-app
                                    conjunction
@@ -38,25 +33,19 @@
   
   (define-splicing-syntax-class array/j
     #:literal-sets (execution-patterns)
-    ; gotcha: data in array constructor syntax
-    ; is normally implicitely quoted, but here we need explicit quoting!
-    ; todo: this uses racket number syntax, change to J (requires lexer change)
     [pattern (~seq s0:scalar/j s1:scalar/j ...+)
-             #:attr node #`#,(make-node
-                              #'(noun)
-                              #`(array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . s0.symbol) (#%datum . s1.symbol) ...)))])
-                              #'()
-                              #'()
-                              #'())])
+             #:attr node #`#,(make-node #'(noun) #`(s0.symbol s1.symbol ...) #'() #'() #'())])
   
   (define-syntax-class scalar/j
     #:literal-sets (execution-patterns)
-    [pattern ((noun) n)
+    [pattern (~and ((noun) n))
              #:attr symbol #'n
              #:attr node #`#,(make-node #'(noun) #'n #'() #'() #'())])
   
-  (define-syntax-class noun/j
+  (define-splicing-syntax-class noun/j
     #:literal-sets (execution-patterns)
+    [pattern n:array/j #:attr node #'n.node]
+    [pattern n:scalar/j #:attr node #'n.node]
     [pattern ((noun) n l m r)
              #:attr symbol #'n
              #:attr node #'((noun) n l m r)])
@@ -97,7 +86,7 @@
              #:attr symbol #'n
              #:attr node #'((name) n l m r)])
 
-  (define-syntax-class cavn/j
+  (define-splicing-syntax-class cavn/j
     #:literal-sets (execution-patterns)
     [pattern n:conjunction/j
              #:attr node #'n.node]
@@ -108,7 +97,16 @@
     [pattern n:noun/j
              #:attr node #'n.node])
 
-  (define-syntax-class vn/j
+(define-syntax-class cav/j
+    #:literal-sets (execution-patterns)
+    [pattern n:conjunction/j
+             #:attr node #'n.node]
+    [pattern n:adverb/j
+             #:attr node #'n.node]
+    [pattern n:verb/j
+             #:attr node #'n.node])
+  
+  (define-splicing-syntax-class vn/j
     #:literal-sets (execution-patterns)
     [pattern n:verb/j
              #:attr node #'n.node]
