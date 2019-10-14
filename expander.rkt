@@ -147,27 +147,54 @@
     [(_ ((noun) n () () ()) env)
      #'(#%datum . n)]
     ;verb application
-    [(_ ((verb) n () () ()) env)
+    #;[(_ ((verb) n () () ()) env) ;THIS IS THE 1ST-CLASS VERB CASE, WHICH REQUIRES MULTIMETHODS
      #`#,(local-expand #'(primitive-env-ref n) 'expression #f)]
-    [(_ ((noun) verb-app () v n) env)
-     #`(#,(local-expand #'(compile-node v env) 'expression #f)
-        #,(local-expand #'(compile-node n env) 'expression #f))]
-    [(_ ((noun) verb-app n1 v n2) env)
-     #`(#,(local-expand #'(compile-node v env) 'expression #f)
-        #,(local-expand #'(compile-node n1 env) 'expression #f)
-        #,(local-expand #'(compile-node n2 env) 'expression #f))]))
+
+    [(_ ((noun) verb-app () v n:noun/j) env) ;preliminary compilation of noun node, fall-through on next 'compile-node'
+     #`(compile-node ((noun) verb-app () v #,(local-expand #'(compile-node n.node env) 'expression #f)) env)]
+    [(_ ((noun) verb-app () v:verb/j ((~literal #%datum) . d)) env) ;scalar monad case
+     #`(#,(local-expand #`(primitive-env-ref v.symbol scalar-arg) 'expression #f)
+        (#%datum . d))]
+    [(_ ((noun) verb-app () v:verb/j a) env) ;array monad case (brittle matching by elimination for now)
+     #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg) 'expression #f)
+        a)]
+
+
+    [(_ ((noun) verb-app n1:noun/j v n2:noun/j) env) ;preliminary compilation of noun node, fall-through on next 'compile-node'
+     #`(compile-node ((noun) verb-app
+        #,(local-expand #'(compile-node n1.node env) 'expression #f)
+        v
+        #,(local-expand #'(compile-node n2.node env) 'expression #f)) env)]
+    [(_ ((noun) verb-app ((~literal #%datum) . d1) v:verb/j ((~literal #%datum) . d2)) env) ;scalar scalar dyad case
+     #`(#,(local-expand #`(primitive-env-ref v.symbol scalar-arg scalar-arg) 'expression #f)
+        (#%datum . d1) (#%datum . d2))]
+    [(_ ((noun) verb-app a v:verb/j ((~literal #%datum) . d)) env) ;array scalar dyad case (scalar lifted to array)
+     #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
+        a (array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . d))))]))]
+    [(_ ((noun) verb-app ((~literal #%datum) . d) v:verb/j a) env) ;scalar array dyad case (same the other way round)
+     #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
+        (array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . d))))]) a)]
+    [(_ ((noun) verb-app a1 v:verb/j a2) env) ;array array dyad case (array array cases cannot be fused bc we don't know which to lift!)
+     #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
+        a1 a2)]))
 
 (define-syntax (primitive-env-ref stx)
   (syntax-parse stx
-    ;currently, we are dispatching on the number of arguments, but type is inaccessible!
+    #:literal-sets (execution-patterns)
     ;implementation for scalars/arrays
-    ; -implement multimethods in macros
+    ; -implement multimethods in macros (sanest but hardest way)
     ; -match at runtime
-    ; -pattern matching on node name in 'compile-node' (complex & dirty without doing type inference)
+    ; -compiling verb nodes and simultaneously pattern matching on node name in 'compile-node' (complex & dirty without doing type inference)
     ; -implement full type inference (which we want to avoid)
-    ;verbs
-    [(_ ^)
-     #'(tr:case-lambda
-         [([y tr:: tr:Number]) (tr:exp y)]
-         ;[([y tr:: (Array tr:Number)]) (array-map tr:exp y)] ;does not work, can't dispatch on type!
-         [([x tr:: tr:Number] [y tr:: tr:Number]) (tr:expt x y)])]))
+    ; -compiling name nodes first and then pattern match on those to drive verb compilation (current attempt)
+    ;  + issue: this requires much more branching in the compiling phase
+    ;  + issue: cannot use case lambdas as this would require type-based dispatch
+    ;verbs (so there is actually only 4 cases bc of scalar lifting)
+    [(_ ^ scalar-arg)
+     #'(tr:λ ([y tr:: tr:Number]) (tr:exp y))]
+    [(_ ^ array-arg)
+     #'(tr:λ ([y tr:: (Array tr:Number)]) (array-map tr:exp y))]
+    [(_ ^ scalar-arg scalar-arg)
+     #'(tr:λ ([x tr:: tr:Number] [y tr:: tr:Number]) (tr:expt x y))]
+    [(_ ^ array-arg array-arg)
+     #'(tr:λ ([x tr:: (Array tr:Number)] [y tr:: (Array tr:Number)]) (array-map tr:expt x y))]))

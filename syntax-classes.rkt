@@ -12,7 +12,9 @@
   (list type name left middle right))
   
   (define-literal-set execution-patterns
-    #:for-syntax #:datum-literals (assignment
+    #:for-syntax #:datum-literals (scalar-arg
+                                   array-arg
+                                   assignment
                                    reference
                                    name
                                    verb
