@@ -6,8 +6,8 @@
 (provide lex/j
          make-node)
 
-(define (make-node type name left middle right)
-  (list type name left middle right))
+(define (make-node type symbol left middle right)
+  (list type symbol left middle right))
 
 (define-lex-abbrevs
   [name (:: (:+ alphabetic)
