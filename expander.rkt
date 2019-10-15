@@ -1,7 +1,8 @@
 #lang racket
 
 (require (prefix-in tr: typed/racket)
-         (for-syntax syntax/parse)
+         (for-syntax syntax/parse
+                     (only-in "lex.rkt" make-node))
          math/array
          "syntax-classes.rkt")
 
@@ -10,124 +11,70 @@
 ;parses & compiles
 (define-syntax (module-begin/j stx)
   (syntax-parse stx
-    [(_ (())) #'(tr:#%module-begin)] ; empty program
+    [(_ (())) #'(tr:#%module-begin)]
     [(_ prg) #`(tr:#%module-begin
-                (compile () #,(local-expand #`(make-ast () prg #,(hasheq)) 'expression #f) #,(hasheq)))])) ;top-level env
+                (compile () #,(local-expand #`(make-ast () prg #,(hasheq)) 'expression #f) #,(hasheq)))]))
 
 ;only parses (for debugging)
 #;(define-syntax (module-begin/j stx)
   (syntax-parse stx
-    [(_ (())) #'(tr:#%module-begin)] ; empty program
+    [(_ (())) #'(tr:#%module-begin)]
     [(_ prg) #`(tr:#%module-begin
-                (make-ast () prg #,(hasheq)))])) ;top-level env
+                (make-ast () prg #,(hasheq)))]))
 
+;make one AST per line
 (define-syntax (make-ast stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
     [(_ (line-trees ...) (line lines ...) env)
-     #`(make-ast (#,(local-expand #`(make-line-ast line #,(hasheq 'a '(adverb verb noun))) 'expression #f) line-trees ... ) (lines ...) env)] ; line-level env
+     #`(make-ast (#,(local-expand #`(make-line-ast line #,(hasheq)) 'expression #f) line-trees ... ) (lines ...) env)]
     [(_ trees () env)
-     #'trees])) ; termination condition yields a tree per line
+     #'trees]))
 
 (define-syntax (make-line-ast stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
-    #|The type of some names is a union-type, so on simple type inference we get a
-      list representing the type from the env, which is then matched against the
-      syntax-classes to drive parsing (e.g. :verb/j matches a list containing 'verb, etc.).
-      We'll use that to generate parse trees corresponding to all possible cases|#
-    ;node is ((part-of-speech) name left middle right), where middle is the operator and left/right are left/right arguments
+    ;node is (part-of-speech name left middle right), where middle is the operator and left/right are left/right arguments
     ;reference to an identifier
-    [(_ (n:name/j r ...) env)
+    #;[(_ (n:name/j r ...) env)
      #`(make-line-ast (#,(make-node
                           (hash-ref (syntax-e #'env) (syntax-e #'n.symbol))
                           #'reference
                           #'()
-                          #'n.node
+                          #'n
                           #'()) (~? r) ...) env)] ; the env returns a list of parts of speech
-
-    ;arrays -> noun nodes, from a sequence of scalar nodes (in the parser bc complete separation lex/parse)
-    #;[(_ (a:array/j r ...) env)
-     #'(make-line-ast (a.node (~? r) ...) env)]
-    ;scalars -> noun nodes
-    #;[(_ (s:scalar/j r ...) env)
-     #'(make-line-ast (s.node (~? r) ...) env)]
-
-    ;self-evaluating forms
-    #;[(_ (cavn:cavn/j r ...+) env)
-     #`(make-line-ast (cavn.node r ...) env)]
     ;termination
     [(_ (cavn:cavn/j) env)
-     #`cavn.node]
-    
+     #'cavn]
     ;monad 1
     [(_ (n:noun/j v1:verb/j v2:verb/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
-     #'(make-line-ast (#,(make-node
-                          #'(noun)
-                          #'verb-app
-                          #'()
-                          #`#,(make-node #'(verb) #'v1.symbol #'() #'() #'())
-                          #'n.node) v2 (~? next) (~? r) ...) env)]
+     #'(make-line-ast (#,(make-node #'noun #'verb-app #f #'v1 #'n) v2 (~? next) (~? r) ...) env)]
     ;dyad 2
     [(_ (n1:noun/j v:verb/j n2:noun/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
-     #`(make-line-ast (#,(make-node
-                          #'(noun)
-                          #'verb-app
-                          #'n2.node
-                          #`#,(make-node #'(verb) #'v.symbol #'() #'() #'())
-                          #'n1.node) (~? next) (~? r) ...) env)]
+     #`(make-line-ast (#,(make-node #'noun #'verb-app #'n2 #'v #'n1) (~? next) (~? r) ...) env)]
     ;conjunction 4 (can yield any part of speech, for now only verb)
     [(_ (vn1:vn/j c:conjunction/j vn2:vn/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
-     #`(make-line-ast (#,(make-node
-                          #'(verb)
-                          #'conjunction-app
-                          #'vn2.node
-                          #'c.node
-                          #'vn1.node) (~? next) (~? r) ...) env)]
+     #`(make-line-ast (#,(make-node #'verb #'conjunction-app #'vn2 #'c #'vn1) (~? next) (~? r) ...) env)]
     ;fork 5 (can yield any part of speech?)
     [(_ (v1:verb/j v2:verb/j vn:vn/j (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
-     #`(make-line-ast (#,(make-node
-                          #'(verb)
-                          #'fork
-                          #'vn.node
-                          #'v2.node
-                          #'v1.node) (~? next) (~? r) ...) env)]
+     #`(make-line-ast (#,(make-node #'verb #'fork #'vn #'v2 #'v1) (~? next) (~? r) ...) env)]
     ;monad 0 brittle implementation using noun elimination for p&e 'anything' since a sequence of noun means an array
     [(_ ((~optional o:cav/j) n:noun/j v:verb/j (~optional (~or* next:copula/j next:lparen)) r ...) env)
-     #`(make-line-ast ((~? o) #,(make-node
-                                 #'(noun)
-                                 #'verb-app
-                                 #'()
-                                 #`#,(make-node #'(verb) #'v.symbol #'() #'() #'())
-                                 #'n.node) (~? next) (~? r) ...) env)]
+     #`(make-line-ast ((~? o) #,(make-node #'noun #'verb-app #f #'v #'n) (~? next) (~? r) ...) env)]
     ;adverb 3 (can yield any part of speech, for now only verb)
     [(_ ((~optional o) a:adverb/j (~or* vn:verb/j vn:noun/j) (~optional (~or* next:copula/j next:lparen next:adverb/j next:verb/j next:noun/j)) r ...) env)
-     #`(make-line-ast ((~? o) #,(make-node
-                                 #'(verb)
-                                 #'adverb-app
-                                 #'vn.node
-                                 #'a.node
-                                 #'()) (~? next) (~? r) ...) env)]
+     #`(make-line-ast ((~? o) #,(make-node #'verb #'adverb-app #'vn #'a #f) (~? next) (~? r) ...) env)]
     ;hook/adverb 6
     [(_ ((~optional o) cavn1:cavn/j cavn2:cavn/j (~optional (~or* next:copula/j next:lparen)) r ...) env)
-     #`(make-line-ast ((~? o) #,(make-node
-                                 #'(verb)
-                                 #'hook
-                                 #'()
-                                 #'cavn2.node
-                                 #'cavn1.node) (~? next) (~? r) ...) env)]
+     #`(make-line-ast ((~? o) #,(make-node #'verb #'hook #f #'cavn2 #'cavn1) (~? next) (~? r) ...) env)]
     ;is 7
     [(_ ((~optional o) v:cavn/j _:copula/j n:name/j r ...) env)
-     #`(make-line-ast ((~? o) #,(make-node
-                                 #'() ;unit type for assignment
-                                 #'assignment
-                                 #'()
-                                 #'n.node
-                                 #'v.node) (~? r) ...) env)]
+     #`(make-line-ast ((~? o) #,(make-node #f #|unit type for assignment|# #'assignment #f #'n #'v) (~? r) ...) env)]
     ;parentheses 8
     [(_ ((~optional o) rparen cavn:cavn/j lparen r ...) env)
      #`(make-line-ast ((~? o) #,(local-expand #'(make-line-ast cavn #,(hasheq)) 'expression #f) (~? r) ...) env)]))
 
+;each line was parsed to a single node, compile line-by-line
 (define-syntax (compile stx)
   (syntax-parse stx
     [(_ (compiled ...) (ast asts ...) env)
@@ -135,46 +82,45 @@
     [(_ compiled () env)
      #'compiled]))
 
-; post order traversal
+;compile a line
 (define-syntax (compile-node stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
     ;nouns
-    ;arrays (that's a dirty hacky way of differentiating arrays from scalars)
-    [(_ ((noun) (n ...+) () () ()) env)
-     #`(array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . n) ...)))])]
+    ;arrays
+    [(_ (noun (n ...) #f #f #f) env)
+     #`(array/syntax array tr:list unsafe-list->array #[#,@(map (compose string->number string) (syntax->datum #'(n ...)))])]
     ;scalars
-    [(_ ((noun) n () () ()) env)
-     #'(#%datum . n)]
+    [(_ (noun n #f #f #f) env)
+     #`(#%datum . #,(read (open-input-string (syntax->datum #'n))))]
     ;verb application
-    #;[(_ ((verb) n () () ()) env) ;THIS IS THE 1ST-CLASS VERB CASE, WHICH REQUIRES MULTIMETHODS
+    #;[(_ (verb n #f #f #f) env) ;1st-class verb case, not implemented
      #`#,(local-expand #'(primitive-env-ref n) 'expression #f)]
-
-    [(_ ((noun) verb-app () v n:noun/j) env) ;preliminary compilation of noun node, fall-through on next 'compile-node'
-     #`(compile-node ((noun) verb-app () v #,(local-expand #'(compile-node n.node env) 'expression #f)) env)]
-    [(_ ((noun) verb-app () v:verb/j ((~literal #%datum) . d)) env) ;scalar monad case
+    [(_ (noun verb-app #f v n:noun/j) env) ;preliminary compilation of noun node, fall-through on next 'compile-node'
+     #`(compile-node (noun verb-app #f v #,(local-expand #'(compile-node n env) 'expression #f)) env)]
+    [(_ (noun verb-app #f v:verb/j ((~literal #%datum) . d)) env) ;scalar monad case
      #`(#,(local-expand #`(primitive-env-ref v.symbol scalar-arg) 'expression #f)
         (#%datum . d))]
-    [(_ ((noun) verb-app () v:verb/j a) env) ;array monad case (brittle matching by elimination for now)
+    [(_ (noun verb-app #f v:verb/j a) env) ;array monad case (brittle matching by elimination for now)
      #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg) 'expression #f)
         a)]
 
 
-    [(_ ((noun) verb-app n1:noun/j v n2:noun/j) env) ;preliminary compilation of noun node, fall-through on next 'compile-node'
-     #`(compile-node ((noun) verb-app
-        #,(local-expand #'(compile-node n1.node env) 'expression #f)
+    [(_ (noun verb-app n1:noun/j v n2:noun/j) env)
+     #`(compile-node (noun verb-app
+        #,(local-expand #'(compile-node n1 env) 'expression #f)
         v
-        #,(local-expand #'(compile-node n2.node env) 'expression #f)) env)]
-    [(_ ((noun) verb-app ((~literal #%datum) . d1) v:verb/j ((~literal #%datum) . d2)) env) ;scalar scalar dyad case
+        #,(local-expand #'(compile-node n2 env) 'expression #f)) env)]
+    [(_ (noun verb-app ((~literal #%datum) . d1) v:verb/j ((~literal #%datum) . d2)) env) ;scalar scalar dyad case
      #`(#,(local-expand #`(primitive-env-ref v.symbol scalar-arg scalar-arg) 'expression #f)
         (#%datum . d1) (#%datum . d2))]
-    [(_ ((noun) verb-app a v:verb/j ((~literal #%datum) . d)) env) ;array scalar dyad case (scalar lifted to array)
+    [(_ (noun verb-app a v:verb/j ((~literal #%datum) . d)) env) ;array scalar dyad case (scalar lifted to array)
      #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
         a (array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . d))))]))]
-    [(_ ((noun) verb-app ((~literal #%datum) . d) v:verb/j a) env) ;scalar array dyad case (same the other way round)
+    [(_ (noun verb-app ((~literal #%datum) . d) v:verb/j a) env) ;scalar array dyad case (same the other way round)
      #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
         (array/syntax array tr:list unsafe-list->array #[#,@(reverse (syntax->list #'((#%datum . d))))]) a)]
-    [(_ ((noun) verb-app a1 v:verb/j a2) env) ;array array dyad case (array array cases cannot be fused bc we don't know which to lift!)
+    [(_ (noun verb-app a1 v:verb/j a2) env) ;array array dyad case (array array case cannot be fused bc we don't know which to lift!)
      #`(#,(local-expand #`(primitive-env-ref v.symbol array-arg array-arg) 'expression #f)
         a1 a2)]))
 

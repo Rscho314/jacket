@@ -1,53 +1,51 @@
 #lang racket
-; The lexer unfortunately cannot be discarded, as quote has
-; syntactic meaning in scheme.
-; TODO: handle parentheses better
+
 (require parser-tools/lex
          (prefix-in : parser-tools/lex-sre))
 
-(provide lex/j)
+(provide lex/j
+         make-node)
+
+(define (make-node type name left middle right)
+  (list type name left middle right))
 
 (define-lex-abbrevs
   [name (:: (:+ alphabetic)
             (:* (:or alphabetic numeric))
             (:* (:: (:? #\_) (:+ (:or alphabetic numeric)))))])
 
-; minimal lexer that rejects nothing (i.e. incomplete language definition)
-; for now, only character sequences with semantic meaning need a case definition (e.g. =:)
 (define lexer/j
   (lexer
    ;adverbs
-   [#\/ '((adverb) /)]
+   [#\/ (make-node 'adverb (string->symbol lexeme) #f #f #f)]
    ;assignment
-   ["=:" '((copula) =:)]
+   ["=:" 'copula]
    ;conjunctions
-   ["@:" '((conjunction) @:)]
+   ["@:" (make-node 'conjunction (string->symbol lexeme) #f #f #f)]
    ;names
-   [name (list 'name (string->symbol lexeme))]
+   [name (make-node 'name (string->symbol lexeme) #f #f #f)]
    ;nouns
-   ; re-use racket numbers
-   [(:+ numeric) (list '(noun) (read (open-input-string lexeme)))]
+   [(:+ numeric) (make-node 'noun lexeme #f #f #f)]
+   [(:: (:+ numeric) (:+ (:: (:+ #\space) (:+ numeric))))
+    (make-node 'noun (remove* '(#\space) (string->list lexeme))
+               #f #f #f)]
    ;parentheses
    [#\( 'lparen]
    [#\) 'rparen]
    ;verbs
-   [#\^ '((verb) ^)]
-   
+   [#\^ (make-node 'verb (string->symbol lexeme) #f #f #f)]
+   ;other punctuation
    [#\space (lexer/j input-port)]
    [(eof) 'eof]
-   [#\newline #\newline]))
+   [#\newline 'eol]))
 
-; yields a program list, with one nested list per line, all reversed
-;removes empty lines
 (define (lex/j ip)
   (define (run acc-file acc-line)
     (let ([tok (lexer/j ip)]
           [cons-line (cons acc-line acc-file)])
       (cond [(and (equal? tok 'eof) (not (equal? acc-line empty))) cons-line]
-            [(and (equal? tok #\newline) (not (equal? acc-line empty))) (run cons-line '())]
+            [(and (equal? tok 'eol) (not (equal? acc-line empty))) (run cons-line '())]
             [(and (equal? tok 'eof) (equal? acc-line empty)) acc-file]
-            [(and (equal? tok #\newline) (equal? acc-line empty)) (run acc-file '())]
+            [(and (equal? tok 'eol) (equal? acc-line empty)) (run acc-file '())]
             [else (run acc-file (cons tok acc-line))])))
 (run '() '()))
-
-#;(lex/j (open-input-string "r=:3"))
