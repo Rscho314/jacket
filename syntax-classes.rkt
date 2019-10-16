@@ -2,7 +2,10 @@
 
 ; Basically, all "type checking" depends on the definitions in this file
 
-(require (for-syntax syntax/parse))
+(require (for-syntax syntax/parse
+                     (only-in "lex.rkt" make-node)
+                     (only-in (prefix-in tr_ typed/racket) tr_list)
+                     math/array))
 (provide (for-syntax (except-out (all-defined-out)
                                  node)))
 
