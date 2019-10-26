@@ -11,19 +11,19 @@
 (define-syntax (infer-type stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
-    [(_ a (-> b c) _)
+    [(_ a:base-type (-> b:base-type c:base-type) _)
      #:when (equal? (syntax-e #'a) (syntax-e #'b))
      #`#,(make-type #'c)]
-    [(_ (Array a) _ (-> (Array b) (Array c)))
+    [(_ (Array a:base-type) _ (-> (Array b:base-type) (Array c:base-type)))
      #:when (equal? (syntax-e #'a) (syntax-e #'b))
      #`#,(make-type #'(Array c))]))
 
 (define-syntax (infer-argument stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
-    [(_ Number)
+    [(_ _:base-type)
      #'Scalar]
-    [(_ (Array _))
+    [(_ (Array _:base-type))
      #'Array]))
 
 ;make one AST per line

@@ -33,41 +33,54 @@
                                    fork
                                    hook) ())
 
-  #;(define-syntax-class node
-    [pattern ((n ms ma ds da) s l r)
-             #:attr symbol #'s
-             #:attr type-nulladic #'n
-             #:attr type-monadic-scalar #'ms
-             #:attr type-monadic-array #'ma
-             #:attr type-dyadic-scalar #'ds
-             #:attr type-dyadic-array #'da])
-
   (define-syntax-class node
     [pattern (t:type s l r)
              #:attr symbol #'s
-             #:attr type-nulladic #'t.n
-             #:attr type-monadic-scalar #'t.ms
-             #:attr type-monadic-array #'t.ma
-             #:attr type-dyadic-scalar #'t.ds
-             #:attr type-dyadic-array #'t.da])
+             #:attr type-nulladic #'t.type-nulladic
+             #:attr type-monadic-scalar #'t.type-monadic-scalar
+             #:attr type-monadic-array #'t.type-monadic-array
+             #:attr type-dyadic-scalar #'t.type-dyadic-scalar
+             #:attr type-dyadic-array #'t.type-dyadic-array])
 
   (define-syntax-class type
-    [pattern (n ms ma ds da)
+    [pattern (n:type-nulladic
+              ms:type-monadic-scalar
+              ma ds da)
              #:attr type-nulladic #'n
              #:attr type-monadic-scalar #'ms
              #:attr type-monadic-array #'ma
              #:attr type-dyadic-scalar #'ds
              #:attr type-dyadic-array #'da])
+
+  (define-syntax-class base-type
+    [pattern Number])
+
+  (define-syntax-class array-type
+    [pattern (Array bt:base-type)])
+
+  (define-syntax-class type-nulladic
+    [pattern #f]
+    [pattern _:base-type]
+    [pattern _:array-type])
+
+  (define-syntax-class type-monadic-scalar
+    [pattern #f]
+    [pattern (-> _:base-type _:base-type)])
   
   (define-syntax-class noun/j
     #:literal-sets (execution-patterns)
     [pattern n:node
              #:attr symbol #'n.symbol
              #:attr type-nulladic #'n.type-nulladic
-             #:fail-unless (let ([type (syntax->datum (attribute n.type-nulladic))])
-                             (or (equal? '(Array Number) type)
-                                 (eq? 'Number type)))
+             #:fail-when (eq? #f (syntax->datum (attribute n.type-nulladic)))
              "expected a node of type 'noun'"])
+
+  (define-syntax-class scalar
+    #:literal-sets (execution-patterns)
+    [pattern s:noun/j
+             #:attr symbol #'s.symbol
+             #:fail-unless (eq? 'Number (syntax->datum (attribute s.type-nulladic))) ;generalize: use 'reify-syntax-class'?
+             "expected a node of type 'scalar'"])
   
   #;(define-syntax-class adverb/j
     #:literal-sets (execution-patterns)

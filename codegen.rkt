@@ -20,26 +20,30 @@
 (define-syntax (compile-node stx)
   (syntax-parse stx
     #:literal-sets (execution-patterns)
+     ;monadic scalar application
+    [(_ (_:type (v Monadic Scalar) #f arg) env)
+     #`(#,(local-expand #'(primitive-env-ref v Monadic Scalar) 'expression #f)
+        #,(local-expand #'(compile-node arg env) 'expression #f))]
     ;nouns
     ;arrays
-    [(_ (noun (n ...) #f #f #f) env)
+    #;[(_ (noun (n ...) #f #f #f) env)
      #`(array/syntax array tr:list unsafe-list->array #[#,@(map (compose string->number string) (syntax->datum #'(n ...)))])]
     ;scalars
-    [(_ (noun n #f #f #f) env)
-     #`(#%datum . #,(string->number (syntax->datum #'n)))]
+    [(_ n:scalar env)
+     #`(#%datum . #,(string->number (syntax->datum #'n.symbol)))]
     ;verb application
     #;[(_ (verb n #f #f #f) env) ;1st-class verb case, not implemented
      #`#,(local-expand #'(primitive-env-ref n) 'expression #f)]
     ;monadic verb
-    [(_ (noun verb-app #f v:verb/j n:noun/j) env) ;1st compile the noun argument if not done
+    #;[(_ (noun verb-app #f v:verb/j n:noun/j) env) ;1st compile the noun argument if not done
      #`(compile-node #,(make-node #'noun #'verb-app #f #'v (local-expand #'(compile-node n env) 'expression #f)) env)]
-    [(_ (noun verb-app #f v:verb/j n) env) ;now compile the application with the 'noun type' 'erased'
+    #;[(_ (noun verb-app #f v:verb/j n) env) ;now compile the application with the 'noun type' 'erased'
      #`(#,(local-expand #`(primitive-env-ref v.symbol _) 'expression #f) n)]
     ;dyadic verb
-    [(_ (noun verb-app n1:noun/j v:verb/j n2:noun/j) env)
+    #;[(_ (noun verb-app n1:noun/j v:verb/j n2:noun/j) env)
      #`(compile-node #,(make-node #'noun #'verb-app
                                   (local-expand #`(compile-node n1 env) 'expression #f)
                                   #'v
                                   (local-expand #`(compile-node n2 env) 'expression #f)) env)]
-    [(_ (noun verb-app n1 v:verb/j n2) env)
+    #;[(_ (noun verb-app n1 v:verb/j n2) env)
      #`(#,(local-expand #`(primitive-env-ref v.symbol _ _) 'expression #f) n1 n2)]))
